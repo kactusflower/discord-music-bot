@@ -24,14 +24,14 @@ A feature-rich Discord music bot that plays audio from YouTube, built with `disc
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/discord-music-bot.git
+git clone https://github.com/kactusflower/discord-music-bot.git
 cd discord-music-bot
 
 # Create virtual environment
 python3 -m venv venv
 source venv/bin/activate
 
-# Install dependencies
+# Install dependencies (includes python-dotenv for .env file support)
 pip install -r requirements.txt
 
 # Install FFmpeg (Ubuntu/Debian)
@@ -43,23 +43,42 @@ brew install ffmpeg
 
 ## Configuration
 
-1. Copy the example environment file:
-   ```bash
-   cp .env.example .env
-   ```
+### Step 1: Create your `.env` file
 
-2. Edit `.env` and add your Discord bot token:
-   ```
-   DISCORD_TOKEN=your_bot_token_here
-   COMMAND_PREFIX=!
-   ```
+Copy the example environment file and add your token:
+```bash
+cp .env.example .env
+```
 
-3. **Get a Discord Bot Token:**
-   - Go to [Discord Developer Portal](https://discord.com/developers/applications)
-   - Create a new application → Bot → Add Bot
-   - Copy the token
-   - Enable **Message Content Intent** in the Bot settings
-   - Invite the bot to your server with `bot` and `applications.scopes` permissions
+Edit `.env` and add your Discord bot token:
+```
+DISCORD_TOKEN=your_bot_token_here
+COMMAND_PREFIX=!
+```
+
+> **Note:** The bot now automatically loads the `.env` file via `python-dotenv`. No need to manually source it.
+
+### Step 2: Create a Discord Bot
+
+1. Go to [Discord Developer Portal](https://discord.com/developers/applications)
+2. Click **New Application** → give it a name
+3. Go to the **Bot** tab → click **Add Bot**
+4. Under **Privileged Gateway Intents**, enable:
+   - **Message Content Intent** (required for commands)
+5. Click **Reset Token** and copy your token
+6. Paste the token into your `.env` file
+
+### Step 3: Invite the bot to your server
+
+1. Go to **OAuth2** → **URL Generator**
+2. Under **Scopes**, select `bot` and `applications.commands`
+3. Under **Bot Permissions**, select:
+   - Send Messages
+   - Read Messages/View Channels
+   - Connect (Voice)
+   - Speak (Voice)
+4. Copy the generated URL and open it in your browser
+5. Select your server and authorize
 
 ## Usage
 
@@ -107,9 +126,11 @@ discord-music-bot/
 
 ### Bot won't start
 - **"No module named 'discord'"**: Run `pip install -r requirements.txt`
-- **"DISCORD_TOKEN environment variable is not set"**: Copy `.env.example` to `.env` and add your token, or set `DISCORD_TOKEN` in your environment
+- **"DISCORD_TOKEN environment variable is not set"**: Make sure your `.env` file exists in the same directory as `bot.py` and contains `DISCORD_TOKEN=your_token`. The bot loads `.env` automatically via `python-dotenv`.
+- **"No module named 'dotenv'"**: Run `pip install python-dotenv` or `pip install -r requirements.txt`
 - **401 Unauthorized**: Your Discord bot token is invalid. Regenerate it in the Discord Developer Portal
 - **SSL errors on Linux**: You may need to install `libssl-dev` (`sudo apt install libssl-dev`)
+- **PyNaCl not found**: Run `pip install PyNaCl` (required for voice features)
 
 ### Bot connects but no audio
 - Ensure FFmpeg is installed: `ffmpeg -version`
