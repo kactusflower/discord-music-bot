@@ -242,7 +242,7 @@ async def on_ready():
 
 
 @bot.event
-async def on_voice_state_update(member: discord.Member, before: discord.After, after: discord.After):
+async def on_voice_state_update(member: discord.Member, before: discord.VoiceState, after: discord.VoiceState):
     """Optional: disconnect if the bot is alone in a voice channel."""
     if member.bot:
         return

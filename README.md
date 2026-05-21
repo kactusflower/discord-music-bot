@@ -103,6 +103,19 @@ discord-music-bot/
 - **`_playback_task`** — Async background task driving playback for each voice channel
 - **Command handlers** — discord.py commands for all user-facing operations
 
+## Troubleshooting
+
+### Bot won't start
+- **"No module named 'discord'"**: Run `pip install -r requirements.txt`
+- **"DISCORD_TOKEN environment variable is not set"**: Copy `.env.example` to `.env` and add your token, or set `DISCORD_TOKEN` in your environment
+- **401 Unauthorized**: Your Discord bot token is invalid. Regenerate it in the Discord Developer Portal
+- **SSL errors on Linux**: You may need to install `libssl-dev` (`sudo apt install libssl-dev`)
+
+### Bot connects but no audio
+- Ensure FFmpeg is installed: `ffmpeg -version`
+- Check that the bot has `Connect` and `Speak` permissions in the voice channel
+- Some YouTube videos may be region-restricted or age-restricted
+
 ## License
 
 MIT
