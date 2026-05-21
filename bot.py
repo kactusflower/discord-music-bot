@@ -221,13 +221,20 @@ async def _playback_task(vc: discord.VoiceClient, state: GuildMusicState):
             state.queue.append(track)
 
 
+_playback_tasks: dict[int, asyncio.Task] = {}
+
 def _ensure_playback(vc: discord.VoiceClient, state: GuildMusicState):
     """Ensure the playback task is running for this voice client."""
-    for task in asyncio.all_tasks():
-        if getattr(task, "_music_guild_id", None) == vc.guild.id:
-            return  # already running
-    t = asyncio.create_task(_playback_task(vc, state))
-    t._music_guild_id = vc.guild.id  # type: ignore[attr-defined]
+    guild_id = vc.guild.id
+    if guild_id in _playback_tasks and not _playback_tasks[guild_id].done():
+        return  # already running
+    _playback_tasks[guild_id] = asyncio.create_task(_playback_task(vc, state))
+
+def _cancel_playback(guild_id: int):
+    """Cancel the playback task for a guild."""
+    if guild_id in _playback_tasks and not _playback_tasks[guild_id].done():
+        _playback_tasks[guild_id].cancel()
+        del _playback_tasks[guild_id]
 
 
 # ---------------------------------------------------------------------------
@@ -239,14 +246,37 @@ async def on_ready():
     await bot.change_presence(activity=discord.Activity(
         type=discord.ActivityType.listening, name=f"{COMMAND_PREFIX}help"
     ))
+    # Validate critical dependencies
+    try:
+        import nacl  # noqa: F401
+        log.info("PyNaCl loaded successfully")
+    except ImportError:
+        log.warning("PyNaCl not installed! Voice features will not work. Install with: pip install PyNaCl")
+    log.info("Bot ready! Use %shelp for commands.", COMMAND_PREFIX)
 
 
 @bot.event
 async def on_voice_state_update(member: discord.Member, before: discord.VoiceState, after: discord.VoiceState):
-    """Optional: disconnect if the bot is alone in a voice channel."""
+    """Disconnect if the bot is left alone in a voice channel."""
     if member.bot:
         return
-    # handled per-guild below if needed
+    guild = member.guild
+    vc = guild.voice_client
+    if vc is None or not vc.is_connected():
+        return
+    # Check if bot is alone (only bot in channel)
+    non_bot_members = [m for m in vc.channel.members if not m.bot]
+    if len(non_bot_members) == 0:
+        # Wait 30 seconds to see if someone rejoins
+        await asyncio.sleep(30)
+        non_bot_members = [m for m in vc.channel.members if not m.bot]
+        if len(non_bot_members) == 0:
+            state = guild_states.get(guild.id)
+            if state:
+                state.queue.clear()
+                state.current = None
+            _cancel_playback(guild.id)
+            await vc.disconnect()
 
 
 # ---------------------------------------------------------------------------
@@ -316,6 +346,8 @@ async def cmd_skip(ctx: commands.Context):
     vc = ctx.voice_client
     if not vc or not vc.is_playing():
         return await ctx.send("❌ Nothing is playing.")
+    state = _get_state(ctx.guild.id)
+    state._play_next_event.set()
     vc.stop()  # triggers _after → next track
     await ctx.send("⏭️ Skipped.")
 
@@ -330,7 +362,9 @@ async def cmd_stop(ctx: commands.Context):
     state.queue.clear()
     state.current = None
     state._play_next_event.set()
-    vc.stop()
+    _cancel_playback(ctx.guild.id)
+    if vc.is_playing():
+        vc.stop()
     await vc.disconnect()
     await ctx.send("⏹️ Stopped and disconnected.")
 
@@ -460,6 +494,49 @@ async def cmd_clear(ctx: commands.Context):
     await ctx.send("🧹 Queue cleared.")
 
 
+@bot.command(name="help")
+async def cmd_help(ctx: commands.Context):
+    """Display all available commands."""
+    embed = discord.Embed(
+        title="🎵 Music Bot Commands",
+        description="A feature-rich Discord music bot.",
+        color=discord.Color.blue(),
+    )
+    embed.add_field(
+        name="🎶 Playback",
+        value=(
+            f"`{COMMAND_PREFIX}play <query>` — Play a YouTube URL or search\n"
+            f"`{COMMAND_PREFIX}skip` — Skip current track\n"
+            f"`{COMMAND_PREFIX}stop` — Stop & disconnect\n"
+            f"`{COMMAND_PREFIX}pause` / `{COMMAND_PREFIX}resume` — Pause/resume\n"
+            f"`{COMMAND_PREFIX}volume <0-100>` — Set volume"
+        ),
+        inline=False,
+    )
+    embed.add_field(
+        name="📋 Queue",
+        value=(
+            f"`{COMMAND_PREFIX}queue` — Show queue\n"
+            f"`{COMMAND_PREFIX}nowplaying` — Now playing\n"
+            f"`{COMMAND_PREFIX}shuffle` — Shuffle queue\n"
+            f"`{COMMAND_PREFIX}remove <index>` — Remove track\n"
+            f"`{COMMAND_PREFIX}clear` — Clear queue"
+        ),
+        inline=False,
+    )
+    embed.add_field(
+        name="🔁 Other",
+        value=(
+            f"`{COMMAND_PREFIX}loop <off|track|queue>` — Loop mode\n"
+            f"`{COMMAND_PREFIX}disconnect` — Disconnect bot\n"
+            f"`{COMMAND_PREFIX}help` — Show this message"
+        ),
+        inline=False,
+    )
+    embed.set_footer(text="Bot stays in voice channel when idle. Auto-disconnects after 30s alone.")
+    await ctx.send(embed=embed)
+
+
 @bot.command(name="disconnect", aliases=["dc", "leave"])
 async def cmd_disconnect(ctx: commands.Context):
     """Disconnect the bot from the voice channel."""
@@ -470,6 +547,7 @@ async def cmd_disconnect(ctx: commands.Context):
     state.queue.clear()
     state.current = None
     state._play_next_event.set()
+    _cancel_playback(ctx.guild.id)
     await vc.disconnect()
     await ctx.send("👋 Disconnected.")
 
@@ -496,8 +574,17 @@ async def on_command_error(ctx: commands.Context, error: commands.CommandError):
 def main():
     if not DISCORD_TOKEN:
         log.error("DISCORD_TOKEN environment variable is not set.")
+        log.error("Create a .env file with: DISCORD_TOKEN=your_token_here")
+        log.error("Or set the DISCORD_TOKEN environment variable.")
         sys.exit(1)
-    bot.run(DISCORD_TOKEN, log_handler=None)
+    try:
+        bot.run(DISCORD_TOKEN, log_handler=None)
+    except discord.LoginFailure:
+        log.error("Invalid DISCORD_TOKEN. Please check your token and try again.")
+        sys.exit(1)
+    except Exception as e:
+        log.error("Bot failed to start: %s", e)
+        sys.exit(1)
 
 
 if __name__ == "__main__":
