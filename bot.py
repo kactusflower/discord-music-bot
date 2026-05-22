@@ -180,6 +180,7 @@ intents.message_content = True
 intents.voice_states = True
 
 bot = commands.Bot(command_prefix=COMMAND_PREFIX, intents=intents)
+bot.remove_command('help')  # remove default help so we can register our custom one
 guild_states: dict[int, GuildMusicState] = {}
 
 
